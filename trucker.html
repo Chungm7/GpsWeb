@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>GPS Tracker iOS</title>
+    <style>
+        :root {
+            --bg-color: #000000;
+            --card-bg: #1c1c1e;
+            --primary: #0a84ff;
+            --danger: #ff453a;
+            --success: #30d158;
+            --text-main: #ffffff;
+            --text-sec: #8e8e93;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            box-sizing: border-box;
+            touch-action: manipulation; /* Mejora respuesta táctil */
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .header h1 { font-size: 1.4rem; font-weight: 600; margin: 0; }
+        .header p { color: var(--text-sec); font-size: 0.8rem; margin-top: 5px; }
+
+        /* Panel de Datos GPS */
+        .gps-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .metric-card {
+            background: var(--card-bg);
+            padding: 15px;
+            border-radius: 12px;
+            text-align: center;
+        }
+        .metric-label {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-sec);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .metric-value {
+            font-family: 'Courier New', monospace;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        /* Botones Grandes */
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 20px;
+            border: none;
+            border-radius: 14px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: white;
+            transition: transform 0.1s;
+        }
+        button:active { transform: scale(0.96); opacity: 0.8; }
+        #btnStart { background-color: var(--success); }
+        #btnStop { background-color: var(--card-bg); color: var(--danger); border: 1px solid var(--danger); opacity: 0.5; }
+        
+        button:disabled { opacity: 0.3 !important; }
+
+        /* Consola de Logs */
+        .console {
+            flex: 1;
+            background: #111;
+            border-radius: 12px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8rem;
+            overflow-y: auto;
+            border: 1px solid #333;
+            max-height: 250px;
+        }
+        .log-row { margin-bottom: 6px; border-bottom: 1px solid #222; padding-bottom: 4px; }
+        .success { color: var(--success); }
+        .error { color: var(--danger); }
+        .warn { color: #ffd60a; }
+
+        /* Configuración Ocultable */
+        details {
+            margin-top: 20px;
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 10px;
+        }
+        summary { color: var(--text-sec); font-size: 0.9rem; font-weight: 600; }
+        input {
+            width: 100%;
+            background: #000;
+            border: 1px solid #333;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 5px;
+            margin-bottom: 10px;
+            font-family: monospace;
+            box-sizing: border-box; /* Fix ancho */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>📡 iOS Tracker</h1>
+        <p>Enviando a back.cubasdesign.studio</p>
+    </div>
+
+    <div class="gps-grid">
+        <div class="metric-card">
+            <span class="metric-label">Latitud</span>
+            <span id="latVal" class="metric-value">...</span>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Longitud</span>
+            <span id="lonVal" class="metric-value">...</span>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Velocidad</span>
+            <span id="spdVal" class="metric-value">0 km/h</span>
+        </div>
+        <div class="metric-card">
+            <span class="metric-label">Envíos</span>
+            <span id="countVal" class="metric-value">0</span>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button id="btnStart" onclick="startTracking()">INICIAR</button>
+        <button id="btnStop" onclick="stopTracking()" disabled>DETENER</button>
+    </div>
+
+    <div class="console" id="consoleBox">
+        <div class="log-row warn">Listo. Habilita GPS y pulsa Iniciar.</div>
+    </div>
+
+    <details>
+        <summary>⚙️ Configuración UUIDs</summary>
+        <div style="margin-top:15px;">
+            <label style="font-size:0.8rem; color:#888;">Camión ID</label>
+            <input type="text" id="truckId" value="98d82377-8ef3-4c68-981a-12391f4699eb">
+            
+            <label style="font-size:0.8rem; color:#888;">Sesión ID</label>
+            <input type="text" id="sessionId" value="2eda8b06-2174-4fca-bbc6-1e67cad11b5f">
+        </div>
+    </details>
+
+    <script>
+        // --- CONFIG ---
+        const ENDPOINT = "https://back.cubasdesign.studio/telemetry-logs";
+        const INTERVAL_MS = 3000; // Envía cada 3 segundos para pruebas
+        
+        let watchId = null;
+        let intervalId = null;
+        let sendCount = 0;
+        let lastPosition = null;
+        let wakeLock = null;
+
+        // UI Elements
+        const ui = {
+            lat: document.getElementById('latVal'),
+            lon: document.getElementById('lonVal'),
+            spd: document.getElementById('spdVal'),
+            count: document.getElementById('countVal'),
+            log: document.getElementById('consoleBox'),
+            btnStart: document.getElementById('btnStart'),
+            btnStop: document.getElementById('btnStop')
+        };
+
+        // 1. Solicitar Permisos GPS al cargar (iOS requiere interacción primero a veces)
+        function initGPS() {
+            if (!navigator.geolocation) return log("Tu dispositivo no tiene GPS", "error");
+            
+            navigator.geolocation.getCurrentPosition(
+                (pos) => { 
+                    updateUI(pos); 
+                    log("GPS Detectado ✅", "success");
+                }, 
+                (err) => {
+                    log("Error GPS: " + err.message + ". Revisa Privacidad > Localización", "error");
+                },
+                { enableHighAccuracy: true }
+            );
+        }
+
+        // 2. Iniciar Rastreo
+        async function startTracking() {
+            // Activar Wake Lock para que no se apague la pantalla
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    log("Pantalla mantenida encendida 💡", "warn");
+                }
+            } catch (err) { console.log(err); }
+
+            ui.btnStart.disabled = true;
+            ui.btnStart.style.opacity = "0.3";
+            ui.btnStop.disabled = false;
+            ui.btnStop.style.opacity = "1";
+            ui.btnStop.style.backgroundColor = "var(--danger)";
+            ui.btnStop.style.color = "white";
+
+            // Watch Position (Actualiza UI cuando te mueves)
+            watchId = navigator.geolocation.watchPosition(
+                (pos) => {
+                    lastPosition = pos;
+                    updateUI(pos);
+                },
+                (err) => log("Perdida de señal GPS", "error"),
+                { enableHighAccuracy: true, maximumAge: 0 }
+            );
+
+            // Intervalo de Envío (POST cada X segundos)
+            intervalId = setInterval(sendData, INTERVAL_MS);
+            log("📡 Enviando datos...", "success");
+        }
+
+        // 3. Detener Rastreo
+        function stopTracking() {
+            if (watchId) navigator.geolocation.clearWatch(watchId);
+            if (intervalId) clearInterval(intervalId);
+            if (wakeLock) wakeLock.release();
+
+            ui.btnStart.disabled = false;
+            ui.btnStart.style.opacity = "1";
+            ui.btnStop.disabled = true;
+            ui.btnStop.style.opacity = "0.5";
+            ui.btnStop.style.backgroundColor = "transparent";
+            
+            log("🛑 Rastreo detenido.", "warn");
+        }
+
+        // 4. Función de Envío
+        async function sendData() {
+            if (!lastPosition) return; // No enviar si no hay GPS aun
+
+            const truckId = document.getElementById('truckId').value;
+            const sessionId = document.getElementById('sessionId').value;
+            const now = new Date();
+            
+            // Construir JSON (Incluye la Z en timestamp para Java)
+            const payload = {
+                timestamp: now.toISOString(), // Esto ya pone la Z al final
+                latitude: lastPosition.coords.latitude,
+                longitude: lastPosition.coords.longitude,
+                direction: "Mobile-GPS",
+                speedKmh: (lastPosition.coords.speed || 0) * 3.6, // m/s a km/h
+                ignitionStatus: "ON",
+                movements: "MOVING",
+                odometer: 0,
+                volts: 100, // Simulamos batería llena
+                coverage: 100,
+                truckUuid: truckId,
+                sessionUuid: sessionId
+            };
+
+            try {
+                const res = await fetch(ENDPOINT, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (res.ok) {
+                    sendCount++;
+                    ui.count.innerText = sendCount;
+                    // Solo loguear cada 5 envíos para no saturar
+                    if(sendCount % 5 === 0) log(`Enviado #${sendCount} OK`, "success");
+                } else {
+                    log(`Error ${res.status}`, "error");
+                }
+            } catch (e) {
+                log("Fallo de red", "error");
+            }
+        }
+
+        function updateUI(pos) {
+            ui.lat.innerText = pos.coords.latitude.toFixed(5);
+            ui.lon.innerText = pos.coords.longitude.toFixed(5);
+            // Velocidad viene en m/s, convertimos a km/h
+            const speed = (pos.coords.speed || 0) * 3.6;
+            ui.spd.innerText = speed.toFixed(1) + " km/h";
+        }
+
+        function log(msg, type) {
+            const div = document.createElement('div');
+            div.className = `log-row ${type}`;
+            div.innerText = `> ${msg}`;
+            ui.log.prepend(div);
+            if(ui.log.children.length > 30) ui.log.lastChild.remove();
+        }
+
+        // Inicializar al cargar
+        initGPS();
+
+    </script>
+</body>
+</html>
